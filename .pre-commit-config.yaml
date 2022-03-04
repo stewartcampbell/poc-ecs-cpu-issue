@@ -1,0 +1,24 @@
+repos:
+  - repo: git://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.64.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: terraform_docs
+        args: ["./"]
+      - id: terraform_tflint
+      - id: terraform_tfsec
+        args:
+          - >
+            --args=--concise-output
+            --exclude-downloaded-modules
+      - id: checkov
+        args:
+          [
+            "--directory",
+            ".",
+            "--framework",
+            "terraform",
+            "--quiet",
+            "--compact",
+          ]
