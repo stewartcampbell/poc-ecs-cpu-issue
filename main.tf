@@ -12,6 +12,8 @@ locals {
   EOT
 }
 
+data "aws_region" "current" {}
+
 data "aws_availability_zones" "available" {
   state = "available"
 }
@@ -45,6 +47,28 @@ data "aws_iam_policy_document" "ecs_tasks_assume_role_policy" {
         "ecs-tasks.amazonaws.com"
       ]
     }
+  }
+}
+
+data "aws_iam_policy_document" "efs_access" {
+  statement {
+    actions = [
+      "elasticfilesystem:ClientMount",
+      "elasticfilesystem:ClientRootAccess",
+      "elasticfilesystem:ClientWrite"
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "elasticfilesystem:AccessPointArn"
+      values = [
+        aws_efs_access_point.one.arn,
+        aws_efs_access_point.two.arn
+      ]
+    }
+    effect = "Allow"
+    resources = [
+      aws_efs_file_system.this.arn
+    ]
   }
 }
 
@@ -243,4 +267,79 @@ resource "aws_efs_access_point" "two" {
     }
     path = "/path/two"
   }
+}
+
+resource "aws_ecs_task_definition" "test" {
+  family                   = local.name
+  network_mode             = "bridge"
+  requires_compatibilities = ["EC2"]
+  execution_role_arn       = aws_iam_role.ecs_general_task_execution_role.arn
+  task_role_arn            = aws_iam_role.cli.arn
+  container_definitions = jsonencode([
+    {
+      essential         = true
+      image             = "public.ecr.aws/docker/library/php:7.4-cli"
+      memoryReservation = 50
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-region        = data.aws_region.current.name
+          awslogs-group         = aws_cloudwatch_log_group.test.name
+          awslogs-stream-prefix = "task-logs"
+        }
+      }
+      mountPoints = [
+        {
+          sourceVolume  = "one"
+          containerPath = "/mnt/efs/one/"
+          readOnly      = false
+        },
+        {
+          sourceVolume  = "two"
+          containerPath = "/mnt/efs/two/"
+          readOnly      = false
+        }
+      ]
+      name        = local.name
+      stopTimeout = 2
+    }
+  ])
+  volume {
+    name = "one"
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.this.id
+      transit_encryption = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.one.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+  volume {
+    name = "two"
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.this.id
+      transit_encryption = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.two.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+}
+
+resource "aws_iam_role" "cli" {
+  name               = "${local.name}-task-cli"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role_policy.json
+  inline_policy {
+    name   = "allow-efs-access-points"
+    policy = data.aws_iam_policy_document.efs_access.json
+  }
+}
+
+#tfsec:ignore:aws-cloudwatch-log-group-customer-key:Encryption is not required
+resource "aws_cloudwatch_log_group" "test" {
+  #checkov:skip=CKV_AWS_158:Encryption is not required
+  name              = "${local.name}-task"
+  retention_in_days = 7
 }
