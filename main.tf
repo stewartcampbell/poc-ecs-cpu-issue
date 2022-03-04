@@ -118,7 +118,7 @@ module "asg_scaling" {
   update_default_version          = true
   use_name_prefix                 = false
   user_data_base64                = base64encode(local.user_data)
-  vpc_zone_identifier             = module.vpc.private_subnets
+  vpc_zone_identifier             = module.vpc.public_subnets
   block_device_mappings = [
     {
       device_name = "/dev/xvda"
@@ -126,7 +126,7 @@ module "asg_scaling" {
       ebs = {
         delete_on_termination = true
         encrypted             = true
-        volume_size           = 20
+        volume_size           = 30
         volume_type           = "gp3"
       }
     }
@@ -158,7 +158,7 @@ module "ecs_ec2_sg" {
       from_port   = 32768
       to_port     = 65535
       protocol    = "tcp"
-      cidr_blocks = module.vpc.vpc_id.private_subnets_cidr_blocks
+      cidr_blocks = module.vpc.vpc_cidr_block
     }
   ]
   egress_with_cidr_blocks = [
@@ -178,7 +178,7 @@ module "ecs_ec2_sg" {
       from_port   = 32768
       to_port     = 65535
       protocol    = "tcp"
-      cidr_blocks = module.vpc.vpc_id.private_subnets_cidr_blocks
+      cidr_blocks = module.vpc.vpc_cidr_block
     },
   ]
 }
@@ -189,7 +189,7 @@ resource "aws_iam_instance_profile" "ecs_ec2_profile" {
 }
 
 resource "aws_iam_role" "ecs_ec2_role" {
-  name               = local.name
+  name               = "${local.name}-ec2"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume_role_policy.json
   managed_policy_arns = [
     "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
@@ -198,7 +198,7 @@ resource "aws_iam_role" "ecs_ec2_role" {
 }
 
 resource "aws_iam_role" "ecs_general_task_execution_role" {
-  name               = local.name
+  name               = "${local.name}-task-exec"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role_policy.json
   managed_policy_arns = [
     "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
