@@ -204,3 +204,43 @@ resource "aws_iam_role" "ecs_general_task_execution_role" {
     "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
   ]
 }
+
+resource "aws_efs_file_system" "this" {
+  #checkov:skip=CKV_AWS_184:KMS CMK not required
+  encrypted       = true
+  throughput_mode = "bursting"
+}
+
+resource "aws_efs_access_point" "one" {
+  file_system_id = aws_efs_file_system.this.id
+  posix_user {
+    gid            = 48
+    uid            = 48
+    secondary_gids = [1402]
+  }
+  root_directory {
+    creation_info {
+      owner_gid   = 0
+      owner_uid   = 0
+      permissions = "0750"
+    }
+    path = "/path/one"
+  }
+}
+
+resource "aws_efs_access_point" "two" {
+  file_system_id = aws_efs_file_system.this.id
+  posix_user {
+    gid            = 48
+    uid            = 48
+    secondary_gids = [1402]
+  }
+  root_directory {
+    creation_info {
+      owner_gid   = 1500
+      owner_uid   = 1402
+      permissions = "0770"
+    }
+    path = "/path/two"
+  }
+}
