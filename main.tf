@@ -50,6 +50,44 @@ data "aws_iam_policy_document" "ecs_tasks_assume_role_policy" {
   }
 }
 
+
+data "aws_iam_policy_document" "events_assume_role_policy" {
+  statement {
+    actions = [
+      "sts:AssumeRole"
+    ]
+    principals {
+      type = "Service"
+      identifiers = [
+        "events.amazonaws.com"
+      ]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "run_task" {
+  statement {
+    actions = [
+      "iam:PassRole"
+    ]
+
+    effect = "Allow"
+    resources = [
+      "*"
+    ]
+  }
+  statement {
+    actions = [
+      "ecs:RunTask"
+    ]
+
+    effect = "Allow"
+    resources = [
+      aws_ecs_task_definition.test.arn
+    ]
+  }
+}
+
 data "aws_iam_policy_document" "efs_access" {
   statement {
     actions = [
@@ -342,4 +380,40 @@ resource "aws_cloudwatch_log_group" "test" {
   #checkov:skip=CKV_AWS_158:Encryption is not required
   name              = "${local.name}-task"
   retention_in_days = 7
+}
+
+resource "aws_iam_role" "scheduled_task" {
+  name               = "${local.name}-sch-task"
+  assume_role_policy = data.aws_iam_policy_document.events_assume_role_policy.json
+  inline_policy {
+    name   = "allow-run-task"
+    policy = data.aws_iam_policy_document.run_task.json
+  }
+}
+
+resource "aws_cloudwatch_event_target" "ecs_scheduled_task" {
+  arn      = module.ecs_cluster.ecs_cluster_arn
+  rule     = aws_cloudwatch_event_rule.ecs_scheduled_task.name
+  role_arn = aws_iam_role.scheduled_task.arn
+
+  ecs_target {
+    task_count          = 1
+    task_definition_arn = aws_ecs_task_definition.test.arn
+  }
+
+  input = <<DOC
+{
+  "containerOverrides": [
+    {
+      "name": ${local.name},
+      "command": ["sleep 10"]
+    }
+  ]
+}
+DOC
+}
+
+resource "aws_cloudwatch_event_rule" "ecs_scheduled_task" {
+  name                = local.name
+  schedule_expression = "rate(5 minutes)"
 }
