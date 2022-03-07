@@ -65,12 +65,20 @@ data "aws_iam_policy_document" "events_assume_role_policy" {
   }
 }
 
+#tfsec:ignore:aws-iam-no-policy-wildcards:Wildcard has condition
 data "aws_iam_policy_document" "run_task" {
+  #checkov:skip=CKV_AWS_109:Wildcard has condition
   statement {
     actions = [
       "iam:PassRole"
     ]
-
+    condition {
+      test     = "StringLike"
+      variable = "iam:PassedToService"
+      values = [
+        "ecs-tasks.amazonaws.com"
+      ]
+    }
     effect = "Allow"
     resources = [
       "*"
@@ -78,9 +86,17 @@ data "aws_iam_policy_document" "run_task" {
   }
   statement {
     actions = [
+      "iam:PassRole"
+    ]
+    effect = "Allow"
+    resources = [
+      aws_iam_role.cli.arn
+    ]
+  }
+  statement {
+    actions = [
       "ecs:RunTask"
     ]
-
     effect = "Allow"
     resources = [
       aws_ecs_task_definition.test.arn
@@ -395,22 +411,23 @@ resource "aws_cloudwatch_event_target" "ecs_scheduled_task" {
   arn      = module.ecs_cluster.ecs_cluster_arn
   rule     = aws_cloudwatch_event_rule.ecs_scheduled_task.name
   role_arn = aws_iam_role.scheduled_task.arn
-
   ecs_target {
     task_count          = 1
     task_definition_arn = aws_ecs_task_definition.test.arn
   }
-
-  input = <<DOC
-{
-  "containerOverrides": [
+  input = jsonencode(
     {
-      "name": ${local.name},
-      "command": ["sleep 10"]
+      containerOverrides = [
+        {
+          name = local.name
+          command = [
+            "sleep",
+            "10"
+          ]
+        }
+      ]
     }
-  ]
-}
-DOC
+  )
 }
 
 resource "aws_cloudwatch_event_rule" "ecs_scheduled_task" {
