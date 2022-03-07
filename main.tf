@@ -127,14 +127,15 @@ data "aws_iam_policy_document" "efs_access" {
 }
 
 module "vpc" {
-  source             = "terraform-aws-modules/vpc/aws"
-  version            = "~> 3.0"
-  name               = local.name
-  cidr               = "10.221.0.0/16"
-  azs                = [data.aws_availability_zones.available.names[0], data.aws_availability_zones.available.names[1]]
-  private_subnets    = ["10.221.1.0/24", "10.221.2.0/24"]
-  public_subnets     = ["10.221.11.0/24", "10.221.12.0/24"]
-  enable_nat_gateway = false
+  source               = "terraform-aws-modules/vpc/aws"
+  version              = "~> 3.0"
+  name                 = local.name
+  cidr                 = "10.221.0.0/16"
+  azs                  = [data.aws_availability_zones.available.names[0], data.aws_availability_zones.available.names[1]]
+  private_subnets      = ["10.221.1.0/24", "10.221.2.0/24"]
+  public_subnets       = ["10.221.11.0/24", "10.221.12.0/24"]
+  enable_nat_gateway   = false
+  enable_dns_hostnames = true
 }
 
 module "ecs_cluster" {
@@ -229,7 +230,7 @@ module "ecs_ec2_sg" {
   source  = "terraform-aws-modules/security-group/aws"
   version = "~> 4.0"
 
-  name   = local.name
+  name   = "${local.name}-ecs-ec2"
   vpc_id = module.vpc.vpc_id
   ingress_with_cidr_blocks = [
     {
@@ -253,17 +254,19 @@ module "ecs_ec2_sg" {
       cidr_blocks = "0.0.0.0/0"
     },
     {
-      from_port   = 2049
-      to_port     = 2049
-      protocol    = "tcp"
-      cidr_blocks = module.vpc.vpc_cidr_block
-    },
-    {
       from_port   = 32768
       to_port     = 65535
       protocol    = "tcp"
       cidr_blocks = module.vpc.vpc_cidr_block
     },
+  ]
+  egress_with_source_security_group_id = [
+    {
+      from_port                = 2049
+      to_port                  = 2049
+      protocol                 = "tcp"
+      source_security_group_id = module.efs_sg.security_group_id
+    }
   ]
 }
 
@@ -293,7 +296,7 @@ module "efs_sg" {
   source  = "terraform-aws-modules/security-group/aws"
   version = "~> 4.0"
 
-  name   = local.name
+  name   = "${local.name}-efs"
   vpc_id = module.vpc.vpc_id
   ingress_with_source_security_group_id = [
     {
@@ -306,8 +309,9 @@ module "efs_sg" {
 }
 
 resource "aws_efs_mount_target" "this" {
+  count          = length(module.vpc.private_subnets)
   file_system_id = aws_efs_file_system.this.id
-  subnet_id      = module.vpc.private_subnets[0]
+  subnet_id      = module.vpc.private_subnets[count.index]
   security_groups = [
     module.efs_sg.security_group_id
   ]
@@ -438,8 +442,9 @@ resource "aws_iam_role" "scheduled_task" {
 }
 
 resource "aws_cloudwatch_event_target" "ecs_scheduled_task" {
+  count    = 10
   arn      = module.ecs_cluster.ecs_cluster_arn
-  rule     = aws_cloudwatch_event_rule.ecs_scheduled_task.name
+  rule     = aws_cloudwatch_event_rule.ecs_scheduled_task[count.index].name
   role_arn = aws_iam_role.scheduled_task.arn
   ecs_target {
     task_count          = 1
@@ -461,6 +466,7 @@ resource "aws_cloudwatch_event_target" "ecs_scheduled_task" {
 }
 
 resource "aws_cloudwatch_event_rule" "ecs_scheduled_task" {
-  name                = local.name
-  schedule_expression = "rate(5 minutes)"
+  count               = 10
+  name                = "${local.name}-${count.index}"
+  schedule_expression = "rate(1 minute)"
 }
