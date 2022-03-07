@@ -253,6 +253,12 @@ module "ecs_ec2_sg" {
       cidr_blocks = "0.0.0.0/0"
     },
     {
+      from_port   = 2049
+      to_port     = 2049
+      protocol    = "tcp"
+      cidr_blocks = module.vpc.vpc_cidr_block
+    },
+    {
       from_port   = 32768
       to_port     = 65535
       protocol    = "tcp"
@@ -280,6 +286,30 @@ resource "aws_iam_role" "ecs_general_task_execution_role" {
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role_policy.json
   managed_policy_arns = [
     "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+  ]
+}
+
+module "efs_sg" {
+  source  = "terraform-aws-modules/security-group/aws"
+  version = "~> 4.0"
+
+  name   = local.name
+  vpc_id = module.vpc.vpc_id
+  ingress_with_source_security_group_id = [
+    {
+      from_port                = 2049
+      to_port                  = 2049
+      protocol                 = "tcp"
+      source_security_group_id = module.ecs_ec2_sg.security_group_id
+    }
+  ]
+}
+
+resource "aws_efs_mount_target" "this" {
+  file_system_id = aws_efs_file_system.this.id
+  subnet_id      = module.vpc.private_subnets[0]
+  security_groups = [
+    module.efs_sg.security_group_id
   ]
 }
 
